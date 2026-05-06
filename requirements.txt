@@ -1,0 +1,8 @@
+numpy>=1.21
+pandas>=1.3
+scikit-learn>=1.0
+tqdm>=4.60
+joblib>=1.1
+
+# PyTorch (CPU-only supported; if installation fails, follow the official PyTorch install command for your platform)
+torch

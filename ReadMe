@@ -1,0 +1,129 @@
+# Reproducible Code Release (Anonymous)
+
+This repository contains the executable code to reproduce the main experimental results:
+1) train the model,
+2) export predicted physical fields,
+3) export final error metrics.
+
+The code is designed to run on **CPU-only** machines.
+
+## 0. Environment
+
+- Python: 3.10 (3.9+ should work)
+- OS: Linux/macOS/Windows (tested via standard Python CLI)
+- Hardware: CPU-only is supported (GPU is optional)
+
+### Install dependencies (pip)
+
+```bash
+python -m venv .venv
+# Linux/macOS
+source .venv/bin/activate
+# Windows (PowerShell)
+# .venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+```
+
+## 1. Data preparation
+
+This project expects CSV files for train/test.
+
+Required columns:
+- `uo`, `vo` (targets)
+- either `time` or `date` (used to construct a numeric time axis)
+- additional feature columns used by the model (as provided by the dataset)
+
+Place your files as:
+- `data/processed_data_mean_train.csv`
+- `data/processed_data_mean_test.csv`
+
+### Download
+(TO BE FILLED) Please download the dataset from: `<DATA_URL_TBD>`
+and put the two CSV files in the `data/` directory as named above.
+
+## 2. Run: training + test-time prediction export
+
+This command will:
+- train a model
+- save `model_final.pt`
+- run prediction on the test set
+- save outputs into the specified output directory (including `full_prediction.csv`)
+
+```bash
+python src/train.py \
+  --train data/processed_data_mean_train.csv \
+  --test  data/processed_data_mean_test.csv \
+  --output outputs/exp_reproduce \
+  --device cpu \
+  --log-loss
+```
+
+Expected key outputs (under `outputs/exp_reproduce/`):
+- `model_final.pt`
+- `full_prediction.csv`
+- `training_summary.txt`
+- `loss_history.csv` (if `--log-loss` enabled)
+- additional diagnostics files produced by the saver utilities
+
+## 3. Export predicted physical fields (required)
+
+This step uses the trained model checkpoint and a CSV input to export:
+- `physics_fields.csv`
+- `physics_scalars.json`
+(and will also write `full_prediction.csv` if not already present)
+
+```bash
+python src/export_physics_params.py \
+  --input-csv data/processed_data_mean_test.csv \
+  --train-csv data/processed_data_mean_train.csv \
+  --model outputs/exp_reproduce/model_final.pt \
+  --output-dir outputs/exp_reproduce
+```
+
+Expected outputs:
+- `outputs/exp_reproduce/physics_fields.csv`
+- `outputs/exp_reproduce/physics_scalars.json`
+
+## 4. Export final error metrics (required)
+
+This step reads:
+- `full_prediction.csv` (prediction vs. ground truth)
+- `physics_fields.csv` (exported physical quantities)
+
+and writes:
+- `exported_metrics.csv`
+- `exported_metrics.json`
+
+```bash
+python src/export_metrics.py \
+  --pred outputs/exp_reproduce/full_prediction.csv \
+  --outdir outputs/exp_reproduce
+```
+
+Expected outputs:
+- `outputs/exp_reproduce/exported_metrics.csv`
+- `outputs/exp_reproduce/exported_metrics.json`
+
+## 5. Optional: quick evaluation report
+
+This optional script generates `velocity_comparison_data.csv` and MAE summaries:
+
+```bash
+python src/evaluate.py \
+  --model outputs/exp_reproduce/model_final.pt \
+  --train-csv data/processed_data_mean_train.csv \
+  --test-csv  data/processed_data_mean_test.csv \
+  --outdir outputs/exp_reproduce \
+  --device cpu
+```
+
+Outputs:
+- `outputs/exp_reproduce/velocity_comparison_data.csv`
+- `outputs/exp_reproduce/eval_per_var.csv`
+- `outputs/exp_reproduce/eval_per_day.csv` (only if a date/time column is available)
+
+## Notes
+
+- If you run on GPU, pass `--device cuda:0` where supported.
+- The repository intentionally excludes plotting/visualization scripts; only the executable pipeline for reproducing results is included.
