@@ -1,11 +1,19 @@
-'''
-    powershell调用命令：python export_physics_params.py `
-  --input-csv "E:\Python_where\Python\PythonProject\mar_PINN-2\data\processed_data_mean_test.csv" `
-  --train-csv "E:\Python_where\Python\PythonProject\mar_PINN-2\data\processed_data_mean_train.csv" `
-  --model "E:\Python_where\Python\PythonProject\mar_PINN-2\outputs\exp_1\model_final.pt" `
-  --output-dir "E:\Python_where\Python\PythonProject\mar_PINN-2\outputs"
-'''
+"""
+Example Usage (PowerShell):
+    python export_physics_params.py `
+      --input-csv "data/processed_data_mean_test.csv" `
+      --train-csv "data/processed_data_mean_train.csv" `
+      --model "outputs/exp_1/model_final.pt" `
+      --output-dir "outputs"
 
+Exports learned physical quantities using a trained model checkpoint (no retraining required).
+- Requires an input CSV and trained model weights.
+- Optionally fits scaler on the training set CSV for normalization consistency.
+- Saves: 
+  - physics_fields.csv (per-point physical fields)
+  - physics_scalars.json (global scalar parameters)
+  - full_prediction.csv (if not already present)
+"""
 
 import argparse
 import os
@@ -20,17 +28,19 @@ from compute_approximate_velocity import compute_velocity
 from save_utils import PredictionSaver
 
 def main():
-    parser = argparse.ArgumentParser(description="导出 PINN-2 学习到的物理参数（无需重新训练）")
-    parser.add_argument("--input-csv", required=True, help="用于导出的数据 CSV（通常为测试集）")
-    parser.add_argument("--model", required=True, help="已训练好的模型权重路径（如 model_final.pt）")
-    parser.add_argument("--output-dir", required=True, help="输出目录")
-    parser.add_argument("--train-csv", default=None, help="可选，训练集 CSV（用于拟合 scaler，与训练时一致）")
+    parser = argparse.ArgumentParser(
+        description="Export learned physical quantities from a trained model (no retraining required)."
+    )
+    parser.add_argument("--input-csv", required=True, help="Input CSV data file (usually test set).")
+    parser.add_argument("--model", required=True, help="Path to trained model weights (e.g., model_final.pt).")
+    parser.add_argument("--output-dir", required=True, help="Output directory.")
+    parser.add_argument("--train-csv", default=None, help="(Optional) Training set CSV for scaler fitting (should match training normalization).")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 拟合/复用 scaler，与 evaluate.py 逻辑保持一致
+    # Fit or reuse scaler for consistent normalization
     if args.train_csv is not None:
         train_df = pd.read_csv(args.train_csv)
         _, _, _, _, _, _, scaler_mgr_train, _ = load_csv_data_from_df(train_df, device=device, fit_scaler=True)
@@ -44,9 +54,9 @@ def main():
             input_df, device=device, fit_scaler=True
         )
 
-    # 模型配置（与训练保持一致，use_scaler=True）
+    # Build model (must use identical normalization as in training phase)
     config = ModelConfig(
-        Ro=0.024,  # 初始化会被已训练权重覆盖
+        Ro=0.024,  # Initial value, will be overwritten by trained checkpoint
         omega_0=30.0,
         use_scaler=True,
         scaler_mgr=scaler_mgr,
@@ -55,13 +65,13 @@ def main():
         grad_clip=10.0
     )
 
-    # 加载模型
+    # Load trained weights
     model = EnhancedPhysicsInformedThermocline(config).to(device)
     state = torch.load(args.model, map_location=device)
     model.load_state_dict(state)
     model.eval()
 
-    # 预测并提取物理量
+    # Run model prediction and extract physical quantities
     x.requires_grad_(True)
     y.requires_grad_(True)
     (
@@ -69,10 +79,10 @@ def main():
         P, g1, g2, h1, h2, time_phase_C2, time_phase_C3
     ) = compute_velocity(model, x, y, z, t)
 
-    # 保存：完整预测（含 u/v/Z0）+ 物理场 + 标量参数
+    # Save predictions and physical fields
     saver = PredictionSaver(model, scaler_mgr, args.output_dir)
 
-    # 可选：保存完整预测（含原始字段对齐）
+    # Optional: save full prediction results with matching columns
     saver.save_full_prediction(
         original_df=original_df,
         u_pred=u_pred, v_pred=v_pred,
@@ -80,7 +90,7 @@ def main():
         Z0=Z0, x=x, y=y, z=z, t=t
     )
 
-    # 保存物理场逐点输出
+    # Save per-point physical fields
     saver.save_physics_fields(
         x=x, y=y, z=z, t=t,
         Z0=Z0, theta=theta, eta=eta,
@@ -88,10 +98,10 @@ def main():
         time_phase_C2=time_phase_C2, time_phase_C3=time_phase_C3
     )
 
-    # 保存全局标量参数
+    # Save global scalar parameters
     saver.save_physics_scalars()
 
-    print("✅ 导出完成：physics_fields.csv 与 physics_scalars.json 已生成。")
+    print("[OK] Exported: physics_fields.csv and physics_scalars.json.")
 
 if __name__ == "__main__":
     main()

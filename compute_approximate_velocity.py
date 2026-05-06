@@ -1,22 +1,22 @@
 def compute_approximate_velocity(self, x_norm, y_norm, depth_norm, t_norm):
     """
-    多尺度渐近速度预测：
+    Multi-scale asymptotic velocity prediction:
     u_appr ≈ ū + Ro·θ·ū + Ro²·η·ū + B0
     v_appr ≈ v̄ + Ro·θ·v̄ + Ro²·η·v̄ + B1
     """
 
-    # 🔹 拼接输入特征
+    # Concatenate normalized input features
     inputs = torch.cat([x_norm, y_norm, depth_norm, t_norm], dim=1)
 
-    # 🔹 基础流场（增强版）
+    # Base flow prediction
     base_flow = self.base_flow_predictor(inputs)
     u_bar = base_flow[:, 0:1]
     v_bar = base_flow[:, 1:2]
 
-    # 🔹 动态温跃层深度 Z₀(t,x,y)
+    # Dynamic thermocline depth Z₀(t, x, y)
     Z0 = self.dynamic_z0_net(t_norm, x_norm, y_norm)
 
-    # 🔹 修正项 θ(t,x,y,z) 和 η(t,x,y,z)
+    # Correction terms θ(t, x, y, z) and η(t, x, y, z)
     theta = self.depth_aware_theta_net(x_norm, y_norm, depth_norm, t_norm, Z0)
     eta = self.depth_aware_eta_net(x_norm, y_norm, depth_norm, t_norm, Z0)
 
@@ -26,22 +26,21 @@ def compute_approximate_velocity(self, x_norm, y_norm, depth_norm, t_norm):
     u_appr = u_bar + self.Ro * theta * u_bar + self.Ro ** 2 * eta * u_bar + B0
     v_appr = v_bar + self.Ro * theta * v_bar + self.Ro ** 2 * eta * v_bar + B1
 
-
-    # 🔹 返回基础预测和修正项（不再调用 self.forward）
+    # Return predicted velocities and physical quantities
     return u_appr, v_appr, u_bar, v_bar, theta, eta, Z0
 
 
 def compute_velocity(model, x, y, z, t):
     """
-    外部调用接口：返回速度预测 + 物理量
+    Main interface: returns velocity predictions and physical quantities.
     """
-    # 🔹 主速度近似部分
+    # Compute asymptotic velocity prediction
     u_appr, v_appr, u_bar, v_bar, theta, eta, Z0 = model.compute_approximate_velocity(x, y, z, t)
 
-    # ✅ 修正参数顺序：t 在前
+    # Forward pass for additional diagnostics
     output = model.forward(t, x, y, z)
 
-    # 🔹 提取物理量
+    # Extract physical quantities
     P = output[:, 4:5]
     g1 = output[:, 5:6]
     g2 = output[:, 6:7]
@@ -54,4 +53,3 @@ def compute_velocity(model, x, y, z, t):
         u_appr, v_appr, u_bar, v_bar, theta, eta, Z0,
         P, g1, g2, h1, h2, time_phase_C2, time_phase_C3
     )
-

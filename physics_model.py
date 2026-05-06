@@ -8,7 +8,7 @@ class EnhancedPhysicsInformedThermocline(nn.Module):
         super().__init__()
         self.config = config
 
-        # 主网络：用于输出基础速度、Z0 等
+        # Main network for base velocity, Z0, etc.
         self.main_net = nn.Sequential(
             SIRENLayer(4, 128, omega_0=30.0, is_first_layer=True),
             SIRENLayer(128, 128, omega_0=30.0),
@@ -16,13 +16,13 @@ class EnhancedPhysicsInformedThermocline(nn.Module):
             nn.Linear(128, 12)
         )
 
-        # 可训练偏移项和 Ro
+        # Trainable offsets and Ro parameter
         self.B0_scalar = nn.Parameter(torch.tensor(0.01))
         self.B1_scalar = nn.Parameter(torch.tensor(0.01))
         self.Ro = nn.Parameter(torch.tensor(config.Ro))
         self.f = nn.Parameter(torch.tensor(1e-4), requires_grad=True)
 
-        # ✅ 新增：theta_net 和 eta_net
+        # Networks for theta and eta correction terms
         self.theta_net = nn.Sequential(
             SIRENLayer(4, 64, omega_0=30.0, is_first_layer=True),
             SIRENLayer(64, 64, omega_0=30.0),
@@ -40,29 +40,32 @@ class EnhancedPhysicsInformedThermocline(nn.Module):
         return self.main_net(inputs)
 
     def compute_approximate_velocity(self, x, y, z, t):
+        """
+        Compute base and corrected velocities and fields.
+        """
         output = self.forward(t, x, y, z)
         u_bar = output[:, 0:1]
         v_bar = output[:, 1:2]
         Z0 = output[:, 9:10]
 
-        # ✅ 构造 theta_raw 和 eta_raw
+        # Compute raw theta and eta correction terms
         theta_input = torch.cat([t, x, y, z], dim=1)
         eta_input = torch.cat([t, x, y, z], dim=1)
         theta_raw = self.theta_net(theta_input)
         eta_raw = self.eta_net(eta_input)
 
-        # ✅ 构造指数衰减项
+        # Exponential decay with vertical distance to thermocline
         decay = torch.exp(-torch.abs(z - Z0) / self.Ro)
 
-        # ✅ 构造最终 theta 和 eta
+        # Final correction outputs
         theta = theta_raw * decay
         eta = eta_raw * decay
 
-        # 构造偏移项
+        # Offset terms
         B0 = self.B0_scalar * torch.ones_like(u_bar)
         B1 = self.B1_scalar * torch.ones_like(v_bar)
 
-        # 构造近似速度
+        # Approximate velocities
         u_appr = u_bar + self.Ro * theta * u_bar + self.Ro ** 2 * eta * u_bar + B0
         v_appr = v_bar + self.Ro * theta * v_bar + self.Ro ** 2 * eta * v_bar + B1
 
@@ -70,8 +73,8 @@ class EnhancedPhysicsInformedThermocline(nn.Module):
 
     def compute_Z0(self, t, x, y):
         """
-        计算 Z₀(t, x, y) 地形场
-        输入必须是归一化后的 t, x, y
+        Compute Z₀(t, x, y) topography.
+        Inputs should be normalized t, x, y.
         """
         return self.dynamic_z0_net(t, x, y)
 
@@ -80,6 +83,9 @@ class EnhancedPhysicsInformedThermocline(nn.Module):
         return output[:, 0:1], output[:, 1:2]
 
     def data_constraints(self, u_appr, v_appr, u_true, v_true):
+        """
+        Compute direction and value loss for predicted vs. true velocities.
+        """
         u_appr_unit = u_appr / (u_appr.norm(dim=1, keepdim=True) + 1e-6)
         v_appr_unit = v_appr / (v_appr.norm(dim=1, keepdim=True) + 1e-6)
         u_true_unit = u_true / (u_true.norm(dim=1, keepdim=True) + 1e-6)
@@ -90,10 +96,16 @@ class EnhancedPhysicsInformedThermocline(nn.Module):
         return direction_loss, value_loss
 
     def rescale_to_physical_units(self, u_pred, v_pred):
+        """
+        Convert normalized velocity to physical units.
+        """
         scale = self.config.velocity_scale
         return u_pred * scale, v_pred * scale
 
     def compute_physics_residual(self, x_norm, y_norm, depth_norm, t_norm):
+        """
+        Compute physics residuals for conservation and dynamics constraints.
+        """
         x_norm.requires_grad_(True)
         y_norm.requires_grad_(True)
         t_norm.requires_grad_(True)
@@ -141,6 +153,9 @@ class EnhancedPhysicsInformedThermocline(nn.Module):
         return res_u, res_v, continuity
 
     def get_all_parameters(self):
+        """
+        Export all trainable parameters to numpy (for diagnostics or saving).
+        """
         return {
             name: param.detach().cpu().numpy().tolist()
             for name, param in self.named_parameters()

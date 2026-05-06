@@ -11,17 +11,17 @@ class ModelConfig:
         grad_clip=10.0
     ):
         """
-        模型配置类，用于集中管理所有可调参数。
+        Model configuration class for managing all tunable hyperparameters.
 
-        参数说明：
-        - Ro: Rossby 数（控制非量纲展开）
-        - omega_0: SIREN 激活频率
-        - use_scaler: 是否使用归一化器
-        - scaler_mgr: 全局归一化器管理器
-        - depth_scaler: 专用于深度的归一化器
-        - siren_layers: SIREN 网络结构，例如 [4, 128, 128, 128, 128, 128, 15]
-        - velocity_scale: 非量纲速度恢复为物理单位的比例（如 m/s）
-        - grad_clip: 自动裁剪导数的阈值，防止梯度爆破
+        Args:
+            Ro: Rossby number (controls nondimensional expansion)
+            omega_0: SIREN activation frequency
+            use_scaler: Whether to use feature normalization
+            scaler_mgr: Global normalization manager
+            depth_scaler: Normalizer for depth feature
+            siren_layers: SIREN neural network structure, e.g. [4, 128, 128, 128, 128, 128, 15]
+            velocity_scale: Scale to recover dimensional velocity (e.g., m/s)
+            grad_clip: Gradient clipping threshold to prevent explosion
         """
         self.Ro = Ro
         self.omega_0 = omega_0
